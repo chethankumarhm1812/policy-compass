@@ -14,7 +14,215 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      chat_messages: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          role: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      eligibility_results: {
+        Row: {
+          created_at: string
+          id: string
+          matched_rules: Json | null
+          missing_fields: string[] | null
+          policy_id: string
+          reasons: string[] | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          matched_rules?: Json | null
+          missing_fields?: string[] | null
+          policy_id: string
+          reasons?: string[] | null
+          status: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          matched_rules?: Json | null
+          missing_fields?: string[] | null
+          policy_id?: string
+          reasons?: string[] | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "eligibility_results_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "policies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notifications: {
+        Row: {
+          created_at: string
+          id: string
+          is_read: boolean | null
+          message: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_read?: boolean | null
+          message: string
+          title: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_read?: boolean | null
+          message?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      policies: {
+        Row: {
+          application_steps: string[] | null
+          apply_link: string | null
+          benefit_score: number | null
+          benefits: string[] | null
+          category: string
+          created_at: string
+          description: string
+          eligibility_rules: Json
+          id: string
+          is_rural_only: boolean | null
+          max_age: number | null
+          max_income: number | null
+          min_age: number | null
+          required_documents: string[] | null
+          target_categories: string[] | null
+          target_gender: string | null
+          target_occupations: string[] | null
+          target_states: string[] | null
+          title: string
+        }
+        Insert: {
+          application_steps?: string[] | null
+          apply_link?: string | null
+          benefit_score?: number | null
+          benefits?: string[] | null
+          category: string
+          created_at?: string
+          description: string
+          eligibility_rules?: Json
+          id?: string
+          is_rural_only?: boolean | null
+          max_age?: number | null
+          max_income?: number | null
+          min_age?: number | null
+          required_documents?: string[] | null
+          target_categories?: string[] | null
+          target_gender?: string | null
+          target_occupations?: string[] | null
+          target_states?: string[] | null
+          title: string
+        }
+        Update: {
+          application_steps?: string[] | null
+          apply_link?: string | null
+          benefit_score?: number | null
+          benefits?: string[] | null
+          category?: string
+          created_at?: string
+          description?: string
+          eligibility_rules?: Json
+          id?: string
+          is_rural_only?: boolean | null
+          max_age?: number | null
+          max_income?: number | null
+          min_age?: number | null
+          required_documents?: string[] | null
+          target_categories?: string[] | null
+          target_gender?: string | null
+          target_occupations?: string[] | null
+          target_states?: string[] | null
+          title?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          age: number | null
+          category: string | null
+          created_at: string
+          district: string | null
+          full_name: string | null
+          gender: string | null
+          id: string
+          income: number | null
+          is_rural: boolean | null
+          occupation: string | null
+          owns_land: boolean | null
+          state: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          age?: number | null
+          category?: string | null
+          created_at?: string
+          district?: string | null
+          full_name?: string | null
+          gender?: string | null
+          id?: string
+          income?: number | null
+          is_rural?: boolean | null
+          occupation?: string | null
+          owns_land?: boolean | null
+          state?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          age?: number | null
+          category?: string | null
+          created_at?: string
+          district?: string | null
+          full_name?: string | null
+          gender?: string | null
+          id?: string
+          income?: number | null
+          is_rural?: boolean | null
+          occupation?: string | null
+          owns_land?: boolean | null
+          state?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
