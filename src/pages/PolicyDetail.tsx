@@ -160,9 +160,14 @@ export default function PolicyDetail() {
           missingFields={eligibility.missingFields}
           onClose={() => setShowDRE(false)}
           onSubmit={async (data) => {
-            // Update profile with new data
             if (!user) return;
-            await supabase.from('profiles').update(data).eq('user_id', user.id);
+            const updateData: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(data)) {
+              if (['age', 'income', 'gender', 'occupation', 'state', 'district', 'category', 'is_rural', 'owns_land', 'full_name'].includes(k)) {
+                updateData[k] = v;
+              }
+            }
+            await supabase.from('profiles').update(updateData as { age?: number; income?: number; gender?: string; occupation?: string; state?: string; district?: string; category?: string; is_rural?: boolean; owns_land?: boolean; full_name?: string }).eq('user_id', user.id);
             setProfile(prev => ({ ...prev, ...data }));
             const newResult = checkEligibility({ ...profile, ...data }, policy);
             setEligibility(newResult);
