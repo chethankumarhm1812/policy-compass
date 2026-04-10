@@ -23,9 +23,9 @@ export default function PolicyCard({ policy, eligibilityStatus, index = 0 }: Pro
   };
 
   const statusLabels = {
-    eligible: '✅ Eligible',
-    partial: '⚠️ Partially Eligible',
-    ineligible: '❌ Not Eligible',
+    eligible: 'Eligible',
+    partial: 'Partially Eligible',
+    ineligible: 'Not Eligible',
   };
 
   return (
@@ -34,7 +34,6 @@ export default function PolicyCard({ policy, eligibilityStatus, index = 0 }: Pro
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2">
-              <span className="text-2xl">{cat?.icon || '📋'}</span>
               <Badge variant="outline" className="text-xs">{policy.category}</Badge>
             </div>
             {eligibilityStatus && (

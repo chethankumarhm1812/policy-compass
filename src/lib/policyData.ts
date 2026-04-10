@@ -1,10 +1,10 @@
-// Policy categories with icons
+// Policy categories
 export const POLICY_CATEGORIES = [
-  { id: 'Education', label: 'Education', icon: '📚', color: 'bg-accent/10 text-accent' },
-  { id: 'Agriculture', label: 'Agriculture', icon: '🌾', color: 'bg-eligible/10 text-eligible' },
-  { id: 'Health', label: 'Health', icon: '🏥', color: 'bg-destructive/10 text-destructive' },
-  { id: 'Employment', label: 'Employment', icon: '💼', color: 'bg-secondary/10 text-secondary' },
-  { id: 'Social Welfare', label: 'Social Welfare', icon: '🏠', color: 'bg-primary/10 text-primary' },
+  { id: 'Education', label: 'Education', color: 'bg-accent/10 text-accent' },
+  { id: 'Agriculture', label: 'Agriculture', color: 'bg-eligible/10 text-eligible' },
+  { id: 'Health', label: 'Health', color: 'bg-destructive/10 text-destructive' },
+  { id: 'Employment', label: 'Employment', color: 'bg-secondary/10 text-secondary' },
+  { id: 'Social Welfare', label: 'Social Welfare', color: 'bg-primary/10 text-primary' },
 ] as const;
 
 export const INDIAN_STATES = [

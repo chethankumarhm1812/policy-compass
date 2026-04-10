@@ -52,7 +52,7 @@ export default function Dashboard() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold font-heading">
-              {profile.full_name ? `Hello, ${profile.full_name}! 👋` : 'Welcome to PolicyLens AI 👋'}
+              {profile.full_name ? `Hello, ${profile.full_name}!` : 'Welcome to PolicyLens AI'}
             </h1>
             <p className="text-muted-foreground mt-1">Discover government policies personalized for you</p>
           </div>
@@ -119,7 +119,7 @@ export default function Dashboard() {
           {POLICY_CATEGORIES.map(cat => (
             <Link key={cat.id} to={`/policies?category=${cat.id}`}>
               <Button variant="outline" size="sm" className="gap-2 rounded-full">
-                <span>{cat.icon}</span> {cat.label}
+                {cat.label}
               </Button>
             </Link>
           ))}
