@@ -11,6 +11,7 @@ import { motion } from 'framer-motion';
 import { POLICY_CATEGORIES } from '@/lib/policyData';
 import { rankPolicies, type Policy, type UserProfile } from '@/lib/eligibilityEngine';
 import PolicyCard from '@/components/PolicyCard';
+import { fetchUserProfile } from '@/lib/profileService';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -24,7 +25,7 @@ export default function Dashboard() {
     if (!user) return;
     Promise.all([
       supabase.from('policies').select('*'),
-      supabase.from('profiles').select('*').eq('user_id', user.id).single(),
+      fetchUserProfile(user.id),
     ]).then(([polRes, profRes]) => {
       if (polRes.data) setPolicies(polRes.data as unknown as Policy[]);
       if (profRes.data) setProfile(profRes.data);

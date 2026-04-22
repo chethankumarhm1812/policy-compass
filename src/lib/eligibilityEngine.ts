@@ -1,44 +1,17 @@
-export interface UserProfile {
-  full_name?: string | null;
-  age?: number | null;
-  gender?: string | null;
-  income?: number | null;
-  occupation?: string | null;
-  state?: string | null;
-  district?: string | null;
-  category?: string | null;
-  is_rural?: boolean | null;
-  owns_land?: boolean | null;
-}
+/**
+ * ELIGIBILITY ENGINE
+ * Check user eligibility against policies
+ * Updated to work with types.ts and PPRAG module
+ */
 
-export interface Policy {
-  id: string;
-  title: string;
-  description: string;
-  category: string;
-  eligibility_rules: Record<string, unknown>;
-  required_documents: string[];
-  benefits: string[];
-  application_steps: string[];
-  apply_link?: string | null;
-  min_age?: number | null;
-  max_age?: number | null;
-  max_income?: number | null;
-  target_gender?: string | null;
-  target_occupations: string[];
-  target_states: string[];
-  target_categories: string[];
-  is_rural_only: boolean;
-  benefit_score: number;
-}
+import {
+  UserProfile,
+  PolicyRecord as Policy,
+  EligibilityResult,
+} from './types';
 
-export interface EligibilityResult {
-  status: 'eligible' | 'partial' | 'ineligible';
-  reasons: string[];
-  matchedRules: Record<string, string>;
-  missingFields: string[];
-  score: number;
-}
+// Re-export types for backwards compatibility
+export type { UserProfile, PolicyRecord as Policy, EligibilityResult } from './types';
 
 export function checkEligibility(profile: UserProfile, policy: Policy): EligibilityResult {
   const reasons: string[] = [];
@@ -160,13 +133,13 @@ export function checkEligibility(profile: UserProfile, policy: Policy): Eligibil
   if (totalChecks === 0) totalChecks = 1; // avoid division by zero
   const score = totalChecks > 0 ? (passedChecks / totalChecks) * 100 : 100;
 
-  let status: 'eligible' | 'partial' | 'ineligible';
+  let status: 'eligible' | 'partially_eligible' | 'ineligible';
   if (reasons.length === 0 && missingFields.length === 0) {
     status = 'eligible';
   } else if (reasons.length === 0 && missingFields.length > 0) {
-    status = 'partial';
+    status = 'partially_eligible';
   } else if (passedChecks > 0 && missingFields.length > 0) {
-    status = 'partial';
+    status = 'partially_eligible';
   } else {
     status = 'ineligible';
   }
@@ -174,15 +147,23 @@ export function checkEligibility(profile: UserProfile, policy: Policy): Eligibil
   return { status, reasons, matchedRules, missingFields, score };
 }
 
-export function rankPolicies(profile: UserProfile, policies: Policy[]): (Policy & { eligibility: EligibilityResult })[] {
+/**
+ * Rank policies for a user based on eligibility and benefit score
+ * Returns policies sorted by eligibility status then benefit score
+ */
+export function rankPolicies(
+  profile: UserProfile,
+  policies: Policy[],
+): (Policy & { eligibility: EligibilityResult })[] {
   return policies
-    .map(policy => ({
+    .map((policy) => ({
       ...policy,
       eligibility: checkEligibility(profile, policy),
     }))
     .sort((a, b) => {
-      const statusOrder = { eligible: 0, partial: 1, ineligible: 2 };
-      const statusDiff = statusOrder[a.eligibility.status] - statusOrder[b.eligibility.status];
+      const statusOrder = { eligible: 0, partially_eligible: 1, ineligible: 2 };
+      const statusDiff =
+        statusOrder[a.eligibility.status] - statusOrder[b.eligibility.status];
       if (statusDiff !== 0) return statusDiff;
       return b.benefit_score - a.benefit_score;
     });

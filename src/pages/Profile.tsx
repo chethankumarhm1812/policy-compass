@@ -21,31 +21,113 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (!user) return;
-    supabase.from('profiles').select('*').eq('user_id', user.id).single().then(({ data }) => {
-      if (data) setProfile(data);
-    });
+    
+    const fetchProfile = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('public_profiles')
+          .select('*')
+          .eq('user_id', user.id)
+          .single();
+        
+        if (error) {
+          console.error('Profile fetch error:', error);
+          // This is expected if profile doesn't exist yet (auto-created on signup)
+          if (error.code !== 'PGRST116') {
+            toast({ 
+              title: 'Error loading profile', 
+              description: error.message,
+              variant: 'destructive' 
+            });
+          }
+          return;
+        }
+        
+        if (data) {
+          setProfile({
+            ...data,
+            is_rural: data.rural,
+            owns_land: data.own_land,
+          });
+        }
+      } catch (err) {
+        console.error('Unexpected error fetching profile:', err);
+      }
+    };
+    
+    fetchProfile();
   }, [user]);
 
   const save = async () => {
-    if (!user) return;
     setSaving(true);
-    const { error } = await supabase.from('profiles').update({
-      full_name: profile.full_name,
-      age: profile.age,
-      gender: profile.gender,
-      income: profile.income,
-      occupation: profile.occupation,
-      state: profile.state,
-      district: profile.district,
-      category: profile.category,
-      is_rural: profile.is_rural,
-      owns_land: profile.owns_land,
-    }).eq('user_id', user.id);
-    setSaving(false);
-    if (error) {
-      toast({ title: 'Error saving profile', variant: 'destructive' });
-    } else {
-      toast({ title: 'Profile saved!' });
+    try {
+      const {
+        data: { user: authUser },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError) {
+        console.error('[saveProfile] Failed to get authenticated user:', authError);
+        throw new Error('Authentication error. Please log in again.');
+      }
+
+      if (!authUser?.id) {
+        console.error('[saveProfile] No authenticated user found');
+        throw new Error('You must be logged in to save your profile.');
+      }
+
+      const payload = {
+        user_id: authUser.id,
+        full_name: profile.full_name?.trim() || null,
+        age: typeof profile.age === 'number' ? profile.age : null,
+        gender: profile.gender || null,
+        income: typeof profile.income === 'number' ? profile.income : null,
+        occupation: profile.occupation || null,
+        category: profile.category || null,
+        state: profile.state || null,
+        district: profile.district || null,
+        rural: typeof profile.is_rural === 'boolean' ? profile.is_rural : null, // map is_rural -> rural
+        own_land: typeof profile.owns_land === 'boolean' ? profile.owns_land : null, // map owns_land -> own_land
+      };
+
+      console.log('[saveProfile] Upserting profile payload:', payload);
+
+      const { data, error } = await supabase
+        .from('public_profiles')
+        .upsert(payload)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[saveProfile] Supabase upsert failed:', error);
+        throw new Error(error.message || 'Failed to save profile.');
+      }
+
+      console.log('[saveProfile] Profile saved successfully:', data);
+
+      // Keep UI state aligned with DB field naming.
+      if (data) {
+        setProfile((prev) => ({
+          ...prev,
+          ...data,
+          is_rural: data.rural,
+          owns_land: data.own_land,
+        }));
+      }
+
+      toast({
+        title: 'Success!',
+        description: 'Your profile has been saved.',
+      });
+    } catch (err) {
+      console.error('[saveProfile] Error:', err);
+      toast({ 
+        title: 'Error', 
+        description: err instanceof Error ? err.message : 'An unexpected error occurred',
+        variant: 'destructive' 
+      });
+    } finally {
+      setSaving(false);
     }
   };
 

@@ -11,6 +11,7 @@ import { checkEligibility, type Policy, type UserProfile, type EligibilityResult
 import { POLICY_CATEGORIES } from '@/lib/policyData';
 import { motion } from 'framer-motion';
 import DREModal from '@/components/DREModal';
+import { fetchUserProfile, updateUserProfile } from '@/lib/profileService';
 
 export default function PolicyDetail() {
   const { id } = useParams<{ id: string }>();
@@ -25,7 +26,7 @@ export default function PolicyDetail() {
     if (!user || !id) return;
     Promise.all([
       supabase.from('policies').select('*').eq('id', id).single(),
-      supabase.from('profiles').select('*').eq('user_id', user.id).single(),
+      fetchUserProfile(user.id),
     ]).then(([polRes, profRes]) => {
       if (polRes.data) {
         const p = polRes.data as unknown as Policy;
@@ -167,7 +168,10 @@ export default function PolicyDetail() {
                 updateData[k] = v;
               }
             }
-            await supabase.from('profiles').update(updateData as { age?: number; income?: number; gender?: string; occupation?: string; state?: string; district?: string; category?: string; is_rural?: boolean; owns_land?: boolean; full_name?: string }).eq('user_id', user.id);
+            await updateUserProfile(
+              user.id,
+              updateData as { age?: number; income?: number; gender?: string; occupation?: string; state?: string; district?: string; category?: string; is_rural?: boolean; owns_land?: boolean; full_name?: string }
+            );
             setProfile(prev => ({ ...prev, ...data }));
             const newResult = checkEligibility({ ...profile, ...data }, policy);
             setEligibility(newResult);
