@@ -129,6 +129,19 @@ export function checkEligibility(profile: UserProfile, policy: Policy): Eligibil
     }
   }
 
+  // Business ownership (from eligibility_rules)
+  if (rules?.requires_business === true) {
+    totalChecks++;
+    if (profile.has_business == null) {
+      missingFields.push('has_business');
+    } else if (!profile.has_business) {
+      reasons.push('Business ownership is required for this scheme');
+    } else {
+      passedChecks++;
+      matchedRules['business'] = 'Business ownership verified';
+    }
+  }
+
   // Determine status
   if (totalChecks === 0) totalChecks = 1; // avoid division by zero
   const score = totalChecks > 0 ? (passedChecks / totalChecks) * 100 : 100;

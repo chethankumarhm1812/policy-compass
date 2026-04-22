@@ -4,13 +4,13 @@ import { supabase } from '@/integrations/supabase/client';
 import { useNavigate, Link } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Search, MessageCircle, User, TrendingUp, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { POLICY_CATEGORIES } from '@/lib/policyData';
 import { rankPolicies, type Policy, type UserProfile } from '@/lib/eligibilityEngine';
 import PolicyCard from '@/components/PolicyCard';
+import { fetchDashboardData } from '@/lib/policyAssistantApi';
 import { fetchUserProfile } from '@/lib/profileService';
 
 export default function Dashboard() {
@@ -19,18 +19,42 @@ export default function Dashboard() {
   const [search, setSearch] = useState('');
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [profile, setProfile] = useState<UserProfile>({});
+  const [statusMessage, setStatusMessage] = useState<string>('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!user) return;
-    Promise.all([
-      supabase.from('policies').select('*'),
-      fetchUserProfile(user.id),
-    ]).then(([polRes, profRes]) => {
-      if (polRes.data) setPolicies(polRes.data as unknown as Policy[]);
-      if (profRes.data) setProfile(profRes.data);
-      setLoading(false);
-    });
+
+    const loadDashboard = async () => {
+      setLoading(true);
+      try {
+        const payload = await fetchDashboardData(user.id);
+        setStatusMessage(payload.message || '');
+        if (payload.profile) {
+          setProfile(payload.profile as UserProfile);
+        } else {
+          setProfile({});
+        }
+        const loadedPolicies = ((payload.all_policies && payload.all_policies.length > 0)
+          ? payload.all_policies
+          : payload.eligible) || [];
+        const normalizedPolicies = loadedPolicies as unknown as Policy[];
+        setPolicies(normalizedPolicies);
+      } catch (error) {
+        console.error('Failed to load dashboard edge function, falling back to direct query:', error);
+        setStatusMessage('Using direct Supabase data source.');
+        const [polRes, profRes] = await Promise.all([
+          supabase.from('policies').select('*'),
+          fetchUserProfile(user.id),
+        ]);
+        if (polRes.data) setPolicies(polRes.data as unknown as Policy[]);
+        if (profRes.data) setProfile(profRes.data as UserProfile);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadDashboard();
   }, [user]);
 
   const ranked = rankPolicies(profile, policies);
@@ -39,8 +63,10 @@ export default function Dashboard() {
     : ranked;
 
   const profileComplete = profile.full_name && profile.age && profile.income;
-  const eligibleCount = ranked.filter(p => p.eligibility.status === 'eligible').length;
-  const partialCount = ranked.filter(p => p.eligibility.status === 'partial').length;
+  const eligiblePolicies = ranked.filter((p) => p.eligibility.status === 'eligible');
+  const notEligiblePolicies = ranked.filter((p) => p.eligibility.status === 'ineligible');
+  const eligibleCount = eligiblePolicies.length;
+  const partialCount = notEligiblePolicies.length;
 
   if (loading) {
     return <div className="flex items-center justify-center h-64 text-muted-foreground">Loading...</div>;
@@ -83,6 +109,12 @@ export default function Dashboard() {
         </div>
       </motion.div>
 
+      {statusMessage && (
+        <Card>
+          <CardContent className="p-4 text-sm text-muted-foreground">{statusMessage}</CardContent>
+        </Card>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Card className="bg-primary/5 border-primary/20">
@@ -100,7 +132,7 @@ export default function Dashboard() {
         <Card className="bg-partial/5 border-partial/20">
           <CardContent className="p-4 text-center">
             <div className="text-2xl font-bold text-partial">{partialCount}</div>
-            <div className="text-xs text-muted-foreground">Partially Eligible</div>
+            <div className="text-xs text-muted-foreground">Not Eligible</div>
           </CardContent>
         </Card>
         <Link to="/chat">
@@ -142,6 +174,52 @@ export default function Dashboard() {
             <PolicyCard key={p.id} policy={p} eligibilityStatus={p.eligibility.status} index={i} />
           ))}
         </div>
+        {filtered.length === 0 && (
+          <Card>
+            <CardContent className="p-4 text-sm text-muted-foreground">
+              No recommendations yet. Complete more profile details to unlock personalized policy matching.
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-eligible">Eligible Policies</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {eligiblePolicies.length === 0 && (
+              <p className="text-sm text-muted-foreground">No eligible policies found yet.</p>
+            )}
+            {eligiblePolicies.slice(0, 5).map((policy) => (
+              <div key={policy.id} className="rounded-lg border border-eligible/30 bg-eligible/5 p-3">
+                <p className="font-medium">{policy.title}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {Array.isArray(policy.benefits) && policy.benefits.length > 0
+                    ? policy.benefits.slice(0, 2).join(' • ')
+                    : 'Benefits information available on policy details page.'}
+                </p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-destructive">Not Eligible Policies</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {notEligiblePolicies.length === 0 && (
+              <p className="text-sm text-muted-foreground">No ineligible policies.</p>
+            )}
+            {notEligiblePolicies.slice(0, 5).map((policy) => (
+              <div key={policy.id} className="rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+                <p className="font-medium">{policy.title}</p>
+                <p className="text-xs text-muted-foreground mt-1">{policy.eligibility.reasons.join(' ')}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

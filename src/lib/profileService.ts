@@ -45,7 +45,7 @@ function looksLikeMissingColumnError(error: { message?: string } | null): boolea
   const msg = error.message.toLowerCase();
   return (
     msg.includes("column") &&
-    (msg.includes("is_rural") || msg.includes("owns_land")) &&
+    (msg.includes("is_rural") || msg.includes("owns_land") || msg.includes("has_business")) &&
     (msg.includes("does not exist") || msg.includes("not found"))
   );
 }
@@ -67,9 +67,14 @@ export async function resolveProfileTable(): Promise<ProfileTable> {
   return cachedProfileTable;
 }
 
-export async function fetchUserProfile(userId: string): Promise<{ data: ProfilePayload | null; error: any }> {
+export async function fetchLatestUserProfile(userId: string): Promise<{ data: ProfilePayload | null; error: any }> {
   const primaryTable = await resolveProfileTable();
-  let response = await (supabase.from(primaryTable as never) as any).select('*').eq('user_id', userId).single();
+  let response = await (supabase.from(primaryTable as never) as any)
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   if (!response.error || !looksLikeMissingTableError(response.error)) {
     return { data: mapDbRowToAppProfile(response.data || null), error: response.error };
@@ -77,8 +82,17 @@ export async function fetchUserProfile(userId: string): Promise<{ data: ProfileP
 
   const fallbackTable: ProfileTable = primaryTable === 'profiles' ? 'public_profiles' : 'profiles';
   cachedProfileTable = fallbackTable;
-  response = await (supabase.from(fallbackTable as never) as any).select('*').eq('user_id', userId).single();
+  response = await (supabase.from(fallbackTable as never) as any)
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
   return { data: mapDbRowToAppProfile(response.data || null), error: response.error };
+}
+
+export async function fetchUserProfile(userId: string): Promise<{ data: ProfilePayload | null; error: any }> {
+  return fetchLatestUserProfile(userId);
 }
 
 export async function upsertUserProfile(userId: string, payload: ProfilePayload): Promise<{ error: any }> {

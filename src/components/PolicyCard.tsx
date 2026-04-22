@@ -9,7 +9,7 @@ import { POLICY_CATEGORIES } from '@/lib/policyData';
 
 interface Props {
   policy: Policy;
-  eligibilityStatus?: 'eligible' | 'partial' | 'ineligible';
+  eligibilityStatus?: 'eligible' | 'partial' | 'partially_eligible' | 'ineligible';
   index?: number;
 }
 
@@ -19,12 +19,14 @@ export default function PolicyCard({ policy, eligibilityStatus, index = 0 }: Pro
   const statusColors = {
     eligible: 'bg-eligible text-primary-foreground',
     partial: 'bg-partial text-primary-foreground',
+    partially_eligible: 'bg-partial text-primary-foreground',
     ineligible: 'bg-ineligible text-primary-foreground',
   };
 
   const statusLabels = {
     eligible: 'Eligible',
     partial: 'Partially Eligible',
+    partially_eligible: 'Partially Eligible',
     ineligible: 'Not Eligible',
   };
 

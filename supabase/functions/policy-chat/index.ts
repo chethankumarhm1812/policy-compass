@@ -126,13 +126,13 @@ function getPersonalizedRecommendation(
 }
 
 /**
- * Process user query with Gemini API
+ * Process user query with HuggingFace text generation API
  */
-async function processWithGemini(
+async function processWithHuggingFace(
   userQuery: string,
   profile: Record<string, unknown>,
   policies: unknown[],
-  GEMINI_API_KEY: string
+  HF_API_KEY: string
 ): Promise<ParsedAssistantJSON> {
   const systemPrompt = `You are a multilingual AI Policy Assistant.
 
@@ -168,34 +168,45 @@ OUTPUT FORMAT (STRICT JSON ONLY, NO EXTRA TEXT):
   "updated_profile": ${JSON.stringify(profile)}
 }`;
 
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: systemPrompt }] }],
-    }),
-  });
+  const response = await fetch(
+    "https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-beta",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${HF_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        inputs: systemPrompt,
+        parameters: {
+          max_new_tokens: 400,
+          temperature: 0.7,
+          return_full_text: false,
+        },
+      }),
+    }
+  );
 
   if (!response.ok) {
     if (response.status === 429) {
       throw new Error("Rate limit exceeded. Please try again later.");
     }
-    if (response.status === 402) {
-      throw new Error("Service credits exhausted. Please add funds.");
+    if (response.status === 401) {
+      throw new Error("HuggingFace API key is invalid.");
     }
     const errorText = await response.text();
     throw new Error(`AI API error (${response.status}): ${errorText}`);
   }
 
   const data = await response.json();
-  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const aiText = data?.[0]?.generated_text || "";
 
-  if (!rawText) {
+  if (!aiText) {
     throw new Error("Unable to generate response");
   }
 
-  // Gemini may wrap JSON in code fences; strip them safely.
-  const jsonText = rawText.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
+  // Extract JSON from the generated text and strip markdown if present
+  const jsonText = aiText.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
   let parsed: unknown;
   try {
     parsed = JSON.parse(jsonText);
@@ -268,16 +279,16 @@ serve(async (req: Request) => {
       );
     }
 
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-    if (!GEMINI_API_KEY) {
-      throw new Error("GEMINI_API_KEY is not configured in Supabase secrets");
+    const HF_API_KEY = Deno.env.get("HUGGINGFACE_API_KEY");
+    if (!HF_API_KEY) {
+      throw new Error("HUGGINGFACE_API_KEY is not configured in Supabase secrets");
     }
 
     // Extract profile updates from query
     const updatedProfile = extractProfileUpdates(userQuery, userProfile);
 
     // Get strict JSON AI response and enforce returned profile object.
-    const aiResponse = await processWithGemini(userQuery, updatedProfile, retrievedContext, GEMINI_API_KEY);
+    const aiResponse = await processWithHuggingFace(userQuery, updatedProfile, retrievedContext, HF_API_KEY);
 
     const response: PolicyAssistantResponse = {
       summary: aiResponse.summary,
@@ -296,9 +307,9 @@ serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({
-        summary: "No relevant policy found",
-        detailed_answer: "No relevant policy found",
-        personalized_recommendation: "No relevant policy found",
+        summary: "I'm having trouble generating a response right now. Could you try again?",
+        detailed_answer: "I'm having trouble generating a response right now. Could you try again?",
+        personalized_recommendation: "I'm having trouble generating a response right now. Could you try again?",
         notes: `Request could not be processed: ${errorMessage}`,
         updated_profile: {},
       } as PolicyAssistantResponse),

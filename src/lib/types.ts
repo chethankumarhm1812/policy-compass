@@ -16,6 +16,7 @@ export interface UserProfile {
   category?: string | null; // SC/ST/OBC/General
   is_rural?: boolean | null;
   owns_land?: boolean | null;
+  has_business?: boolean | null;
 }
 
 // ✅ Policy Database Type
@@ -108,6 +109,7 @@ export interface PolicyQueryRequest {
   query: string;
   user_profile?: Partial<UserProfile>;
   top_k?: number; // Default 5
+  chat_history?: Array<{ role: 'user' | 'assistant'; content: string }>;
 }
 
 export interface PolicyQueryResponse {

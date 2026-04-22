@@ -180,6 +180,7 @@ export type Database = {
           district: string | null
           full_name: string | null
           gender: string | null
+          has_business: boolean | null
           id: string
           income: number | null
           is_rural: boolean | null
@@ -196,6 +197,7 @@ export type Database = {
           district?: string | null
           full_name?: string | null
           gender?: string | null
+          has_business?: boolean | null
           id?: string
           income?: number | null
           is_rural?: boolean | null
@@ -212,6 +214,7 @@ export type Database = {
           district?: string | null
           full_name?: string | null
           gender?: string | null
+          has_business?: boolean | null
           id?: string
           income?: number | null
           is_rural?: boolean | null

@@ -46,6 +46,7 @@ export default function PolicyDetail() {
   const statusConfig = {
     eligible: { color: 'bg-eligible', icon: CheckCircle, label: 'You are Eligible! ✅', textColor: 'text-eligible' },
     partial: { color: 'bg-partial', icon: AlertTriangle, label: 'Partially Eligible ⚠️', textColor: 'text-partial' },
+    partially_eligible: { color: 'bg-partial', icon: AlertTriangle, label: 'Partially Eligible ⚠️', textColor: 'text-partial' },
     ineligible: { color: 'bg-ineligible', icon: XCircle, label: 'Not Eligible ❌', textColor: 'text-ineligible' },
   };
   const sc = eligibility ? statusConfig[eligibility.status] : null;
@@ -145,12 +146,22 @@ export default function PolicyDetail() {
                 </li>
               ))}
             </ol>
+            {(!policy.application_steps || policy.application_steps.length === 0) && (
+              <p className="text-sm text-muted-foreground">
+                Application steps are not published for this policy yet. Use the official apply link or contact your district office.
+              </p>
+            )}
             {policy.apply_link && (
               <a href={policy.apply_link} target="_blank" rel="noopener noreferrer">
                 <Button className="mt-4" size="lg">
                   Apply Now <ExternalLink className="ml-2 h-4 w-4" />
                 </Button>
               </a>
+            )}
+            {!policy.apply_link && (
+              <p className="text-sm text-muted-foreground mt-4">
+                Official apply link is not available yet. Keep documents ready and check the state portal or CSC center for the latest process.
+              </p>
             )}
           </CardContent>
         </Card>

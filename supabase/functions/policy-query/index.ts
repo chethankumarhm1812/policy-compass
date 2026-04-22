@@ -74,6 +74,11 @@ interface PolicyQueryResponse {
   error?: string;
 }
 
+interface HistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 // =====================
 // INIT
 // =====================
@@ -393,7 +398,8 @@ function checkEligibility(profile: UserProfile, policy: PolicyRecord): Eligibili
 async function generateLLMResponse(
   query: string,
   processedPolicies: ProcessedPolicy[],
-  userProfile?: UserProfile
+  userProfile?: UserProfile,
+  chatHistory: HistoryMessage[] = [],
 ): Promise<LLMResponse> {
   const startTime = Date.now();
   const apiKey = Deno.env.get("HF_API_KEY");
@@ -407,34 +413,141 @@ async function generateLLMResponse(
     (p) => p.eligibility_check.status !== "ineligible"
   );
 
-  const policyContext = eligiblePolicies
-    .slice(0, 3)
-    .map(
-      (p) =>
-        `${p.policy_name}: ${p.eligibility_summary}\nBenefits: ${p.benefits_summary}`
-    )
-    .join("\n\n");
-
   const languageCode = detectLanguageCode(query);
-  const systemPrompt = `You are a multilingual AI Policy Assistant.
-Rules:
-1. Use ONLY provided policy context.
-2. Respond in the same language as user query. Language code: ${languageCode}
-3. Keep answer simple and non-technical.
-4. Explain why policy fits, benefits, and next steps.
-5. Personalize: farmer->agriculture, low income->subsidies, rural->rural benefits.
-6. If no relevant policy: return exactly "No relevant policy found".`;
+  const topEligiblePolicies = eligiblePolicies.slice(0, 3).map((p) => ({
+    policy_name: p.policy_name,
+    eligibility_summary: p.eligibility_summary,
+    benefits_summary: p.benefits_summary,
+  }));
+  const topNotEligiblePolicies = processedPolicies
+    .filter((p) => p.eligibility_check.status === "ineligible")
+    .slice(0, 3)
+    .map((p) => ({
+      policy_name: p.policy_name,
+      reasons: p.eligibility_check.reasons,
+    }));
 
-  const userPrompt = `USER PROFILE:
-${JSON.stringify(userProfile || {})}
+  const prompt = `You are Policy Lens AI — a smart, friendly assistant that helps users understand government schemes.
 
-USER QUESTION:
+You are speaking to a real user. Be natural, conversational, and helpful.
+
+---
+
+User Profile:
+${JSON.stringify(userProfile || {}, null, 2)}
+
+Eligible Policies:
+${JSON.stringify(topEligiblePolicies, null, 2)}
+
+Not Eligible Policies:
+${JSON.stringify(topNotEligiblePolicies, null, 2)}
+
+User Question:
 ${query}
 
-AVAILABLE POLICIES:
-${policyContext || "No relevant policy found"}
+---
 
-Return a concise plain-text answer for the user.`;
+Instructions:
+
+* Speak like a human, not a system
+* Do NOT list everything blindly
+* Pick the most relevant 2–3 policies
+* Explain WHY they match the user
+* If user says "I am a student", prioritize youth/education schemes
+* If something is not eligible, explain simply
+* Give helpful suggestions
+* Guide next steps
+
+---
+
+Tone:
+
+Friendly, supportive, clear
+
+Example style:
+
+"Since you're a student, there are a couple of schemes that could really help you 👇"
+
+---
+
+Structure:
+
+1. Friendly intro
+2. Best matching schemes (2–3 only)
+3. Why they fit
+4. Short note on exclusions (if relevant)
+5. Actionable next step
+6. Ask a follow-up question
+
+---
+
+Rules:
+
+* NO hallucination
+* ONLY use given policies
+* NO generic answers
+* NO dumping all policies
+* Respond in the same language as the user query. Language code: ${languageCode}
+* Use conversation history to avoid repeating prior explanations
+
+Conversation History:
+${JSON.stringify(chatHistory.slice(-5), null, 2)}
+
+---
+
+End with a question like:
+"Do you want help applying for one of these or finding more student-focused schemes?"`;
+
+  function deterministicHumanAnswer(): string {
+    const top = eligiblePolicies.slice(0, 3);
+    const intro = "Based on your profile, a few schemes stand out as especially useful for you.";
+    const recs = top.length > 0
+      ? top
+          .map((p) => `- ${p.policy_name}: ${p.benefits_summary || p.eligibility_summary}`)
+          .join("\n")
+      : "- I could not find a fully eligible scheme yet, but I can help you target near-match options.";
+    const exclusions = processedPolicies
+      .filter((p) => p.eligibility_check.status === "ineligible")
+      .slice(0, 2)
+      .map((p) => `${p.policy_name} (${p.eligibility_check.reasons.slice(0, 1).join(", ") || "criteria mismatch"})`)
+      .join("; ");
+    const exclusionLine = exclusions
+      ? `Some schemes are not a fit yet: ${exclusions}.`
+      : "Most shortlisted schemes look reasonably aligned with your profile.";
+    return `${intro}\n\n${recs}\n\n${exclusionLine}\n\nWould you like help applying for one of these?`;
+  }
+
+  function buildFallbackResponse(answer: string, modelUsed = "hf-fallback"): LLMResponse {
+    const cleaned = (answer || "").trim();
+    const looksLikeHtml = /<html|<!doctype|<head|<body|cannot post/i.test(cleaned);
+    const safeAnswer = (!cleaned || looksLikeHtml)
+      ? deterministicHumanAnswer()
+      : cleaned;
+    return {
+      answer: safeAnswer,
+      explanation: {
+        why_eligible: eligiblePolicies.length > 0
+          ? `You are eligible for ${eligiblePolicies.length} policy(ies): ${eligiblePolicies
+              .map((p) => p.policy_name)
+              .join(", ")}`
+          : "Complete your profile for personalized recommendations.",
+        missing_requirements:
+          processedPolicies.some((p) => p.eligibility_check.status === "partially_eligible")
+            ? "Some requirements are missing. Check policy details."
+            : undefined,
+        next_steps: "Visit the apply links in the full details below to apply.",
+      },
+      full_details: {
+        processed_policies: processedPolicies,
+        user_matching_profile: userProfile || {},
+      },
+      metadata: {
+        policies_analyzed: processedPolicies.length,
+        processing_time_ms: Date.now() - startTime,
+        model_used: modelUsed,
+      },
+    };
+  }
 
   try {
     const response = await fetch(
@@ -446,7 +559,7 @@ Return a concise plain-text answer for the user.`;
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          inputs: `<s>[INST] ${systemPrompt}\n\n${userPrompt} [/INST]`,
+          inputs: `<s>[INST] ${prompt} [/INST]`,
           parameters: {
             max_new_tokens: 280,
             temperature: 0.2,
@@ -460,11 +573,37 @@ Return a concise plain-text answer for the user.`;
     );
 
     const raw = await response.text();
-    let data: any;
+    let data: any = null;
     try {
       data = JSON.parse(raw);
     } catch {
-      throw new Error("Hugging Face returned non-JSON response");
+      // Try a secondary HF endpoint before falling back.
+      const alt = await fetch("https://router.huggingface.co/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: HF_CHAT_MODEL,
+          messages: [
+            { role: "user", content: prompt },
+          ],
+          temperature: 0.2,
+          max_tokens: 280,
+        }),
+      });
+      const altRaw = await alt.text();
+      try {
+        const altData = JSON.parse(altRaw);
+        const altContent = altData?.choices?.[0]?.message?.content;
+        if (typeof altContent === "string" && altContent.trim().length > 0) {
+          return buildFallbackResponse(altContent.trim(), "hf-router-chat-completions");
+        }
+      } catch {
+        return buildFallbackResponse(raw, "hf-plain-text-fallback");
+      }
+      return buildFallbackResponse(altRaw, "hf-router-fallback");
     }
 
     // Proper error handling
@@ -486,6 +625,10 @@ Return a concise plain-text answer for the user.`;
     let answer = "Unable to generate response at this time.";
     if (Array.isArray(data) && data.length > 0 && typeof data[0]?.generated_text === "string") {
       answer = data[0].generated_text;
+    } else if (typeof data?.generated_text === "string") {
+      answer = data.generated_text;
+    } else if (typeof data?.answer === "string") {
+      answer = data.answer;
     }
 
     if (!answer || answer.trim().length === 0) {
@@ -496,36 +639,13 @@ Return a concise plain-text answer for the user.`;
       answer = "No relevant policy found";
     }
 
-    // Build explanation
-    const explanation = {
-      why_eligible: eligiblePolicies.length > 0
-        ? `You are eligible for ${eligiblePolicies.length} policy(ies): ${eligiblePolicies
-            .map((p) => p.policy_name)
-            .join(", ")}`
-        : "Complete your profile for personalized recommendations.",
-      missing_requirements:
-        processedPolicies.some((p) => p.eligibility_check.status === "partially_eligible")
-          ? "Some requirements are missing. Check policy details."
-          : undefined,
-      next_steps: "Visit the apply links in the full details below to apply.",
-    };
-
-    return {
-      answer: answer.trim(),
-      explanation,
-      full_details: {
-        processed_policies: processedPolicies,
-        user_matching_profile: userProfile || {},
-      },
-      metadata: {
-        policies_analyzed: processedPolicies.length,
-        processing_time_ms: Date.now() - startTime,
-        model_used: HF_CHAT_MODEL,
-      },
-    };
+    return buildFallbackResponse(answer.trim(), HF_CHAT_MODEL);
   } catch (error) {
     console.error("Error generating LLM response:", error);
-    throw error;
+    return buildFallbackResponse(
+      "I could not contact the AI model right now. Please try again in a few seconds.",
+      "hf-error-fallback",
+    );
   }
 }
 
@@ -548,7 +668,17 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { query, user_profile, top_k } = body;
+    const { query, user_profile, top_k, chat_history } = body;
+    const safeHistory: HistoryMessage[] = Array.isArray(chat_history)
+      ? chat_history
+          .filter((m) =>
+            m &&
+            (m.role === "user" || m.role === "assistant") &&
+            typeof m.content === "string" &&
+            m.content.trim().length > 0
+          )
+          .slice(-5)
+      : [];
 
     if (!query || typeof query !== "string") {
       return new Response(
@@ -623,7 +753,8 @@ serve(async (req) => {
     const llmResponse = await generateLLMResponse(
       query,
       relevantPolicies,
-      user_profile
+      user_profile,
+      safeHistory,
     );
 
     // 4. Return response

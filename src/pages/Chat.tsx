@@ -9,15 +9,14 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Loader2, Send } from 'lucide-react';
 import { LLMResponse, PolicyQueryRequest, UserProfile } from '@/lib/types';
-import { queryPolicyPipeline } from '@/lib/policyQuery';
 import { useToast } from '@/hooks/use-toast';
-import { fetchUserProfile } from '@/lib/profileService';
+import { fetchLatestUserProfile } from '@/lib/profileService';
+import { queryPolicyPipeline } from '@/lib/policyQuery';
 
 interface ChatMessage {
   id: string;
@@ -34,7 +33,6 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [userProfile, setUserProfile] = useState<Partial<UserProfile> | null>(null);
-  const [expandedDetailsId, setExpandedDetailsId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -42,7 +40,7 @@ export default function ChatPage() {
 
     const fetchProfile = async () => {
       try {
-        const { data, error } = await fetchUserProfile(user.id);
+        const { data, error } = await fetchLatestUserProfile(user.id);
         
         if (error) {
           // PGRST116 = "no rows" - this is expected for new users
@@ -83,14 +81,15 @@ export default function ChatPage() {
     setLoading(true);
 
     try {
-      if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY) {
-        throw new Error('Missing Supabase environment variables.');
-      }
+      const chatHistory = messages
+        .slice(-5)
+        .map((m) => ({ role: m.role, content: m.content }));
 
       const requestBody: PolicyQueryRequest = {
         query: msg,
         user_profile: userProfile || undefined,
         top_k: 5,
+        chat_history: chatHistory,
       };
 
       const payload = await queryPolicyPipeline(requestBody);
@@ -146,36 +145,26 @@ export default function ChatPage() {
         {messages.map((message) => (
           <div key={message.id} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : ''}`}>
             <Card className={`max-w-[85%] p-4 ${message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-card'}`}>
-              <div className="space-y-4">
-                <p>{message.content}</p>
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  {message.content
+                    .split(/\n{2,}/)
+                    .map((paragraph) => paragraph.trim())
+                    .filter(Boolean)
+                    .map((paragraph, idx) => (
+                      <p key={`${message.id}-p-${idx}`} className="whitespace-pre-wrap">
+                        {paragraph}
+                      </p>
+                    ))}
+                </div>
                 {message.llmResponse && (
-                  <div className="rounded-2xl border border-muted p-4 bg-muted/20">
-                    <div className="mb-3 text-sm font-semibold">Policy Assistant Details</div>
-                    <div className="space-y-2 text-sm">
-                      <p>{message.llmResponse.explanation.why_eligible}</p>
-                      {message.llmResponse.explanation.missing_requirements && (
-                        <p className="text-warning">Missing: {message.llmResponse.explanation.missing_requirements}</p>
-                      )}
-                      <p className="text-muted-foreground">Next steps: {message.llmResponse.explanation.next_steps}</p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="mt-3"
-                      onClick={() => setExpandedDetailsId(expandedDetailsId === message.id ? null : message.id)}
-                    >
-                      {expandedDetailsId === message.id ? 'Hide full details' : 'Show full policy details'}
-                    </Button>
-                    {expandedDetailsId === message.id && (
-                      <div className="mt-3 space-y-3 text-sm">
-                        {message.llmResponse.full_details.processed_policies.map((policy) => (
-                          <div key={policy.policy_id} className="rounded-xl border border-border p-3 bg-background">
-                            <p className="font-semibold">{policy.policy_name}</p>
-                            <p>{policy.eligibility_summary} • {policy.benefits_summary}</p>
-                            <p className="text-xs text-muted-foreground">Key conditions: {policy.key_conditions.join(', ')}</p>
-                          </div>
-                        ))}
-                      </div>
+                  <div className="rounded-xl border border-border bg-muted/20 p-3 text-sm space-y-2">
+                    <p><span className="font-semibold">Why:</span> {message.llmResponse.explanation.why_eligible}</p>
+                    {message.llmResponse.explanation.missing_requirements && (
+                      <p><span className="font-semibold">Missing:</span> {message.llmResponse.explanation.missing_requirements}</p>
+                    )}
+                    {message.llmResponse.explanation.next_steps && (
+                      <p><span className="font-semibold">Next steps:</span> {message.llmResponse.explanation.next_steps}</p>
                     )}
                   </div>
                 )}

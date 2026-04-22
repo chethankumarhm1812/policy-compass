@@ -12,6 +12,7 @@ import { INDIAN_STATES, OCCUPATIONS, CATEGORIES } from '@/lib/policyData';
 import { Save, User } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { UserProfile } from '@/lib/eligibilityEngine';
+import { fetchLatestUserProfile } from '@/lib/profileService';
 
 export default function ProfilePage() {
   const { user } = useAuth();
@@ -24,11 +25,7 @@ export default function ProfilePage() {
     
     const fetchProfile = async () => {
       try {
-        const { data, error } = await supabase
-          .from('public_profiles')
-          .select('*')
-          .eq('user_id', user.id)
-          .single();
+        const { data, error } = await fetchLatestUserProfile(user.id);
         
         if (error) {
           console.error('Profile fetch error:', error);
@@ -46,8 +43,9 @@ export default function ProfilePage() {
         if (data) {
           setProfile({
             ...data,
-            is_rural: data.rural,
-            owns_land: data.own_land,
+            is_rural: data.is_rural ?? data.rural,
+            owns_land: data.owns_land ?? data.own_land,
+            has_business: data.has_business ?? false,
           });
         }
       } catch (err) {
@@ -88,6 +86,7 @@ export default function ProfilePage() {
         district: profile.district || null,
         rural: typeof profile.is_rural === 'boolean' ? profile.is_rural : null, // map is_rural -> rural
         own_land: typeof profile.owns_land === 'boolean' ? profile.owns_land : null, // map owns_land -> own_land
+        has_business: typeof profile.has_business === 'boolean' ? profile.has_business : false,
       };
 
       console.log('[saveProfile] Upserting profile payload:', payload);
@@ -112,6 +111,7 @@ export default function ProfilePage() {
           ...data,
           is_rural: data.rural,
           owns_land: data.own_land,
+          has_business: data.has_business ?? false,
         }));
       }
 
@@ -216,6 +216,10 @@ export default function ProfilePage() {
               <div className="flex items-center gap-3">
                 <Switch checked={profile.owns_land || false} onCheckedChange={v => update('owns_land', v)} />
                 <Label>Own land</Label>
+              </div>
+              <div className="flex items-center gap-3">
+                <Switch checked={profile.has_business || false} onCheckedChange={v => update('has_business', v)} />
+                <Label>Do you own a business?</Label>
               </div>
             </div>
 
