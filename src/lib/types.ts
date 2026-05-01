@@ -107,6 +107,7 @@ export interface ChatMessage {
 // ✅ Edge Function Request/Response
 export interface PolicyQueryRequest {
   query: string;
+  user_id?: string;
   user_profile?: Partial<UserProfile>;
   top_k?: number; // Default 5
   chat_history?: Array<{ role: 'user' | 'assistant'; content: string }>;

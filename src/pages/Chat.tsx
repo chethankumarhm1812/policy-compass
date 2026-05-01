@@ -1,21 +1,11 @@
-/**
- * CHAT PAGE WITH 3-LAYER OUTPUT
- *
- * Uses the policy-query RAG pipeline:
- * 1. Query embedding + RAG retrieval
- * 2. PPRAG policy processing
- * 3. LLM answer generation
- */
-
 import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Loader2, Send } from 'lucide-react';
-import { LLMResponse, PolicyQueryRequest, UserProfile } from '@/lib/types';
+import { PolicyQueryRequest } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
-import { fetchLatestUserProfile } from '@/lib/profileService';
 import { queryPolicyPipeline } from '@/lib/policyQuery';
 
 interface ChatMessage {
@@ -23,7 +13,6 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
-  llmResponse?: LLMResponse;
 }
 
 export default function ChatPage() {
@@ -32,34 +21,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [userProfile, setUserProfile] = useState<Partial<UserProfile> | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!user) return;
-
-    const fetchProfile = async () => {
-      try {
-        const { data, error } = await fetchLatestUserProfile(user.id);
-        
-        if (error) {
-          // PGRST116 = "no rows" - this is expected for new users
-          if (error.code !== 'PGRST116') {
-            console.error('Profile fetch error:', error);
-          } else {
-            console.log('No profile found yet (new user)');
-          }
-          return;
-        }
-        
-        if (data) setUserProfile(data as Partial<UserProfile>);
-      } catch (err) {
-        console.error('Unexpected error fetching profile:', err);
-      }
-    };
-    
-    fetchProfile();
-  }, [user]);
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -87,14 +49,15 @@ export default function ChatPage() {
 
       const requestBody: PolicyQueryRequest = {
         query: msg,
-        user_profile: userProfile || undefined,
+        user_id: user?.id,
         top_k: 5,
         chat_history: chatHistory,
       };
 
       const payload = await queryPolicyPipeline(requestBody);
+
       if (!payload.success || !payload.data) {
-        throw new Error(payload.error || 'Policy assistant returned invalid data');
+        throw new Error(payload.error || 'No response from assistant');
       }
 
       const assistantMessage: ChatMessage = {
@@ -102,7 +65,6 @@ export default function ChatPage() {
         role: 'assistant',
         content: payload.data.answer.trim(),
         timestamp: new Date(),
-        llmResponse: payload.data,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -110,7 +72,7 @@ export default function ChatPage() {
       console.error('Chat error:', error);
       toast({
         title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to reach the policy assistant',
+        description: error instanceof Error ? error.message : 'Failed to reach the assistant',
         variant: 'destructive',
       });
     } finally {
@@ -145,40 +107,15 @@ export default function ChatPage() {
         {messages.map((message) => (
           <div key={message.id} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : ''}`}>
             <Card className={`max-w-[85%] p-4 ${message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-card'}`}>
-              <div className="space-y-3">
-                <div className="space-y-2">
-                  {message.content
-                    .split(/\n{2,}/)
-                    .map((paragraph) => paragraph.trim())
-                    .filter(Boolean)
-                    .map((paragraph, idx) => (
-                      <p key={`${message.id}-p-${idx}`} className="whitespace-pre-wrap">
-                        {paragraph}
-                      </p>
-                    ))}
-                </div>
-                {message.llmResponse && (
-                  <div className="rounded-xl border border-border bg-muted/20 p-3 text-sm space-y-2">
-                    <p><span className="font-semibold">Why:</span> {message.llmResponse.explanation.why_eligible}</p>
-                    {message.llmResponse.explanation.missing_requirements && (
-                      <p><span className="font-semibold">Missing:</span> {message.llmResponse.explanation.missing_requirements}</p>
-                    )}
-                    {message.llmResponse.explanation.next_steps && (
-                      <p><span className="font-semibold">Next steps:</span> {message.llmResponse.explanation.next_steps}</p>
-                    )}
-                  </div>
-                )}
-              </div>
+              <p className="whitespace-pre-wrap">{message.content}</p>
             </Card>
           </div>
         ))}
 
         {loading && (
           <div className="flex gap-3">
-            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center mt-1 text-primary">
-              <Loader2 className="h-5 w-5 animate-spin" />
-            </div>
-            <Card className="p-4 bg-card">
+            <Card className="p-4 bg-card flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               <p className="text-sm text-muted-foreground">Thinking...</p>
             </Card>
           </div>
@@ -193,10 +130,8 @@ export default function ChatPage() {
             className="flex-1"
             placeholder="Ask about any policy..."
             value={input}
-            onChange={(event) => setInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') send();
-            }}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') send(); }}
             disabled={loading}
           />
           <Button onClick={() => send()} disabled={loading || !input.trim()} size="icon">

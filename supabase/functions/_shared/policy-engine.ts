@@ -182,6 +182,122 @@ export function check_policy_eligibility(
   return { eligible, not_eligible };
 }
 
+/**
+ * Detect user's intent from their question
+ */
+type UserIntent = "general_eligibility" | "specific_policy" | "why_not_eligible" | "how_to_apply" | "general_info";
+
+function detectUserIntent(query: string): UserIntent {
+  const lowerQuery = query.toLowerCase();
+
+  // Check for specific policy name or "how to apply"
+  if (
+    lowerQuery.includes("how to apply") ||
+    lowerQuery.includes("apply for") ||
+    lowerQuery.includes("application process") ||
+    lowerQuery.includes("apply to") ||
+    lowerQuery.includes("application steps")
+  ) {
+    return "how_to_apply";
+  }
+
+  // Check for "why not" or "why am i not" eligible
+  if (
+    lowerQuery.includes("why") &&
+    (lowerQuery.includes("not eligible") ||
+      lowerQuery.includes("am i not") ||
+      lowerQuery.includes("cannot apply") ||
+      lowerQuery.includes("don't qualify"))
+  ) {
+    return "why_not_eligible";
+  }
+
+  // Check for general eligibility questions
+  if (
+    lowerQuery.includes("eligible") ||
+    lowerQuery.includes("qualify") ||
+    lowerQuery.includes("what policies") ||
+    lowerQuery.includes("which schemes") ||
+    lowerQuery.includes("what schemes")
+  ) {
+    return "general_eligibility";
+  }
+
+  // Check if asking about a specific policy (mentions a specific scheme name)
+  if (
+    lowerQuery.includes("pm kisan") ||
+    lowerQuery.includes("mudra") ||
+    lowerQuery.includes("atalji") ||
+    lowerQuery.includes("scholarship") ||
+    lowerQuery.includes("pension") ||
+    lowerQuery.includes("loan") ||
+    lowerQuery.includes("subsidy") ||
+    lowerQuery.includes("scheme about") ||
+    lowerQuery.includes("tell me about")
+  ) {
+    return "specific_policy";
+  }
+
+  return "general_info";
+}
+
+/**
+ * Find a specific policy by name if user mentioned one
+ */
+function findPolicyByQuery(
+  query: string,
+  eligible: PolicyRecord[],
+  notEligible: NotEligiblePolicy[],
+): { policy: PolicyRecord | null; isEligible: boolean } {
+  const lowerQuery = query.toLowerCase();
+  const allPolicies = [
+    ...eligible.map((p) => ({ policy: p, isEligible: true })),
+    ...notEligible.map((ne) => ({ policy: ne.policy, isEligible: false })),
+  ];
+
+  // Try exact or partial title match
+  for (const { policy, isEligible } of allPolicies) {
+    const lowerTitle = policy.title.toLowerCase();
+    if (
+      lowerQuery.includes(lowerTitle) ||
+      lowerTitle.includes(lowerQuery.split(/\s+/)[0]) ||
+      (lowerQuery.includes("pm") && lowerTitle.includes("kisan")) ||
+      (lowerQuery.includes("mudra") && lowerTitle.toLowerCase().includes("mudra"))
+    ) {
+      return { policy, isEligible };
+    }
+  }
+
+  return { policy: null, isEligible: false };
+}
+
+function generateSmartFallback(
+  profile: UserProfile,
+  eligible: PolicyRecord[],
+  notEligible: NotEligiblePolicy[],
+): string {
+  let response = "Based on your profile, here are the most relevant schemes for you:\n\n";
+
+  const topPolicies = eligible.slice(0, 3);
+
+  if (topPolicies.length > 0) {
+    topPolicies.forEach((p, i) => {
+      const benefits = Array.isArray(p.benefits) ? p.benefits[0] : p.benefits || "See details for benefits";
+      response += `👉 ${p.title} – ${benefits}\n`;
+    });
+  } else {
+    response += "No fully eligible policies found yet, but let me help you find near-match options.\n";
+  }
+
+  if (notEligible.length > 0) {
+    response += "\nSome schemes may not match due to certain requirements.\n";
+  }
+
+  response += "\nWould you like help applying for one of these?";
+
+  return response;
+}
+
 export async function generate_ai_response(
   profile: UserProfile,
   eligible: PolicyRecord[],
@@ -189,9 +305,8 @@ export async function generate_ai_response(
   user_query: string,
   chat_history: Array<{ role: "user" | "assistant"; content: string }> = [],
 ): Promise<string> {
-  const hfKey = Deno.env.get("HF_API_KEY");
-  const openAiKey = Deno.env.get("OPENAI_API_KEY");
   const geminiKey = Deno.env.get("GEMINI_API_KEY");
+
   const safeProfile = profile && typeof profile === "object" ? profile : {};
   const safeEligible = Array.isArray(eligible) ? eligible : [];
   const safeNotEligible = Array.isArray(not_eligible) ? not_eligible : [];
@@ -199,7 +314,6 @@ export async function generate_ai_response(
     ? user_query.trim()
     : "Please suggest policies based on my profile.";
 
-  const queryLower = safeQuery.toLowerCase();
   const safeHistory = Array.isArray(chat_history)
     ? chat_history
         .filter((h) =>
@@ -210,47 +324,86 @@ export async function generate_ai_response(
         )
         .slice(-5)
     : [];
-  const income = typeof safeProfile.income === "number" ? safeProfile.income : null;
-  const isRural = safeProfile.is_rural === true;
 
-  const scorePolicy = (policy: PolicyRecord): number => {
-    let score = 0;
-    // Exact eligibility match gets highest priority.
-    score += 100;
-    // Income match preference.
-    if (income != null && policy.max_income != null && income <= policy.max_income) {
-      score += 20;
-    }
-    // Rural preference.
-    if (isRural && (policy.is_rural === true || policy.is_rural_only === true)) {
-      score += 15;
-    }
-    // Lightweight intent relevance.
-    const text = `${policy.title} ${policy.description} ${policy.category ?? ""}`.toLowerCase();
-    const tokens = queryLower.split(/\s+/).filter((t) => t.length > 2);
-    if (tokens.length > 0) {
-      const hits = tokens.filter((t) => text.includes(t)).length;
-      score += hits * 5;
-    }
-    return score;
-  };
+  if (!geminiKey) {
+    return generateSmartFallback(safeProfile, safeEligible, safeNotEligible);
+  }
 
-  const topEligible = [...safeEligible]
-    .sort((a, b) => scorePolicy(b) - scorePolicy(a))
-    .slice(0, 3);
+  // ✨ NEW: Detect user intent
+  const intent = detectUserIntent(safeQuery);
+  const { policy: mentionedPolicy, isEligible: mentionedPolicyEligible } = findPolicyByQuery(
+    safeQuery,
+    safeEligible,
+    safeNotEligible,
+  );
 
-  // For specific "why not X" style questions, prioritize that policy if present.
-  const specificExclusions = [...safeNotEligible]
-    .filter((item) => {
-      const title = item.policy.title.toLowerCase();
-      return queryLower.includes(title) || title.split(/\s+/).some((part) => part.length > 3 && queryLower.includes(part));
-    })
-    .slice(0, 1);
-  const topNotEligible = (specificExclusions.length > 0 ? specificExclusions : safeNotEligible).slice(0, 3);
+  // ✨ Build intent-aware prompt
+  let intentInstructions = "";
 
-  const prompt = `You are Policy Lens AI — a smart, friendly assistant that helps users understand government schemes.
+  if (intent === "how_to_apply" && mentionedPolicy) {
+    // User wants to know how to apply for a specific policy
+    intentInstructions = `
+User Intent: Asking HOW TO APPLY for a specific policy (${mentionedPolicy.title})
 
-You are speaking to a real user. Be natural, conversational, and helpful.
+RESPOND LIKE THIS:
+1. Confirm the policy
+2. Give simple step-by-step application process
+3. List required documents (if available)
+4. Where to apply (online/offline)
+5. Timeline
+
+DO NOT list all policies. Focus on this ONE policy only.
+`;
+  } else if (intent === "why_not_eligible") {
+    // User wants to know why they're not eligible
+    const notEligibleReasons = safeNotEligible.map((ne) => `- ${ne.policy.title}: ${ne.reasons.join(", ")}`).join("\n");
+    intentInstructions = `
+User Intent: Asking WHY NOT ELIGIBLE
+
+RESPOND LIKE THIS:
+1. Acknowledge the policies they asked about
+2. Clearly list the eligibility requirements they don't meet
+3. Suggest what they can do to become eligible (if applicable)
+4. Suggest alternative policies they might qualify for
+
+DO NOT make recommendations for other policies unless directly related.
+
+Not Eligible Reasons:
+${notEligibleReasons}
+`;
+  } else if (intent === "specific_policy" && mentionedPolicy) {
+    // User is asking about a specific policy
+    intentInstructions = `
+User Intent: Asking about a specific policy (${mentionedPolicy.title})
+
+RESPOND LIKE THIS:
+1. Focus ONLY on the policy they mentioned
+2. Explain what it offers
+3. Explain eligibility status (eligible/not eligible)
+4. If eligible: explain why they match
+5. If not eligible: explain what's missing
+
+DO NOT recommend other policies. Keep focus on THEIR question.
+`;
+  } else {
+    // General eligibility question
+    intentInstructions = `
+User Intent: General eligibility question
+
+RESPOND LIKE THIS:
+1. Recommend top 2–3 most relevant policies
+2. Explain why each matches their situation
+3. Mention if some schemes don't fit due to requirements
+4. Ask a follow-up question
+
+DO NOT overwhelm with all policies.
+`;
+  }
+
+  const prompt = `
+You are Policy Lens AI — a smart, friendly assistant that understands what users really want.
+
+IMPORTANT: Read the user's question carefully and respond to EXACTLY what they're asking.
 
 ---
 
@@ -258,167 +411,62 @@ User Profile:
 ${JSON.stringify(safeProfile, null, 2)}
 
 Eligible Policies:
-${JSON.stringify(topEligible, null, 2)}
+${JSON.stringify(safeEligible, null, 2)}
 
 Not Eligible Policies:
-${JSON.stringify(topNotEligible, null, 2)}
+${JSON.stringify(safeNotEligible, null, 2)}
 
 User Question:
 ${safeQuery}
 
 ---
 
-Instructions:
-
-* Speak like a human, not a system
-* Do NOT list everything blindly
-* Pick the most relevant 2–3 policies
-* Explain WHY they match the user
-* If user says "I am a student", prioritize youth/education schemes
-* If something is not eligible, explain simply
-* Give helpful suggestions
-* Guide next steps
+${intentInstructions}
 
 ---
 
-Tone:
+General Rules:
 
-Friendly, supportive, clear
+- Be conversational and natural
+- Be clear and direct
+- Avoid repeating previous answers if in conversation history
+- Do NOT always list all policies
+- Do NOT be robotic
+- End with a relevant follow-up question only if needed
 
-Example style:
-
-"Since you're a student, there are a couple of schemes that could really help you 👇"
-
----
-
-Structure:
-
-1. Friendly intro
-2. Best matching schemes (2–3 only)
-3. Why they fit
-4. Short note on exclusions (if relevant)
-5. Actionable next step
-6. Ask a follow-up question
-
----
-
-Rules:
-
-* NO hallucination
-* ONLY use given policies
-* NO generic answers
-* NO dumping all policies
-* Use conversation history to avoid repeating prior explanations
-
-Conversation History:
-${JSON.stringify(safeHistory, null, 2)}
-
----
-
-End with a question like:
-"Do you want help applying for one of these or finding more student-focused schemes?"`;
-
-  const fallback = "Something went wrong while generating suggestions. Please try again.";
-
-  if (!hfKey && !openAiKey && !geminiKey) return fallback;
+Tone: Like talking to a real, helpful assistant.
+`;
 
   try {
-    if (hfKey) {
-      const response = await fetch(
-        "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${hfKey}`,
+    const { GoogleGenerativeAI } = await import("npm:@google/generative-ai");
+    const genAI = new GoogleGenerativeAI(geminiKey);
+    const model = genAI.getGenerativeModel({
+      model: "gemini-1.5-pro",
+    });
+
+    let aiText = "";
+
+    try {
+      const result = await model.generateContent({
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: prompt }],
           },
-          body: JSON.stringify({
-            inputs: `<s>[INST] ${prompt} [/INST]`,
-            parameters: {
-              max_new_tokens: 320,
-              temperature: 0.2,
-              return_full_text: false,
-            },
-            options: {
-              wait_for_model: true,
-            },
-          }),
-        },
-      );
-      if (response.ok) {
-        const data = await response.json();
-        const content = Array.isArray(data) ? data?.[0]?.generated_text?.trim() : "";
-        if (content) {
-          let finalContent = content;
-          if (safeEligible.length === 0) {
-            finalContent = `${finalContent}\n\nI could not find a fully eligible policy yet, but I can still shortlist near-match options and help you complete the missing requirements.`;
-          }
-          if (!/\?\s*$/.test(finalContent.trim())) {
-            finalContent = `${finalContent}\n\nWould you like help applying for one of these?`;
-          }
-          return finalContent;
-        }
-      }
-    }
-
-    if (openAiKey) {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${openAiKey}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.2,
-        }),
+        ],
       });
-      if (response.ok) {
-        const data = await response.json();
-        const content = data?.choices?.[0]?.message?.content?.trim();
-        if (content) {
-          let finalContent = content;
-          if (safeEligible.length === 0) {
-            finalContent = `${finalContent}\n\nI could not find a fully eligible policy yet, but I can still shortlist near-match options and help you complete the missing requirements.`;
-          }
-          if (!/\?\s*$/.test(finalContent.trim())) {
-            finalContent = `${finalContent}\n\nWould you like help applying for one of these?`;
-          }
-          return finalContent;
-        }
-      }
+      aiText = result.response.text().trim();
+    } catch (error) {
+      console.error("Gemini Error:", error);
     }
 
-    if (geminiKey) {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-          }),
-        },
-      );
-      if (response.ok) {
-        const data = await response.json();
-        const content = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-        if (content) {
-          let finalContent = content;
-          if (safeEligible.length === 0) {
-            finalContent = `${finalContent}\n\nI could not find a fully eligible policy yet, but I can still shortlist near-match options and help you complete the missing requirements.`;
-          }
-          if (!/\?\s*$/.test(finalContent.trim())) {
-            finalContent = `${finalContent}\n\nWould you like help applying for one of these?`;
-          }
-          return finalContent;
-        }
-      }
+    if (!aiText || aiText.length < 20) {
+      return generateSmartFallback(safeProfile, safeEligible, safeNotEligible);
     }
-  } catch (_error) {
-    return fallback;
+
+    return aiText;
+  } catch (error) {
+    console.error("generate_ai_response error:", error);
+    return generateSmartFallback(safeProfile, safeEligible, safeNotEligible);
   }
-
-  return fallback;
 }
