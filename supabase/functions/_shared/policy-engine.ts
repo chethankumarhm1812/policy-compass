@@ -438,27 +438,25 @@ Tone: Like talking to a real, helpful assistant.
 `;
 
   try {
-    const { GoogleGenerativeAI } = await import("npm:@google/generative-ai");
-    const genAI = new GoogleGenerativeAI(geminiKey);
-    const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-pro",
-    });
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+        }),
+      },
+    );
 
-    let aiText = "";
-
-    try {
-      const result = await model.generateContent({
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: prompt }],
-          },
-        ],
-      });
-      aiText = result.response.text().trim();
-    } catch (error) {
-      console.error("Gemini Error:", error);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Gemini API error:", response.status, errorText);
+      return generateSmartFallback(safeProfile, safeEligible, safeNotEligible);
     }
+
+    const data = await response.json();
+    const aiText = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
 
     if (!aiText || aiText.length < 20) {
       return generateSmartFallback(safeProfile, safeEligible, safeNotEligible);

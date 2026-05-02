@@ -24,7 +24,8 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { query, user_id, user_profile, chat_history } = body;
+    const { query, user_id, user_profile, chat_history, allow_profile_access, language } = body;
+    const userLanguage = language === 'kn' ? 'kn' : 'en';
 
     if (!query || typeof query !== "string" || query.trim().length === 0) {
       return new Response(JSON.stringify({ success: false, error: "Query is required" }), {
@@ -33,20 +34,24 @@ serve(async (req) => {
       });
     }
 
+    const useProfile = allow_profile_access !== false;
+    let profile = {} as Record<string, unknown>;
+
+    if (useProfile) {
+      profile = user_profile || {};
+      if (user_id) {
+        const { data: profileRow } = await supabase
+          .from("profiles")
+          .select("age, gender, income, occupation, state, category, is_rural")
+          .eq("user_id", user_id)
+          .maybeSingle();
+        if (profileRow) profile = profileRow;
+      }
+    }
+
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
     if (!GEMINI_API_KEY) {
       throw new Error("GEMINI_API_KEY is not configured");
-    }
-
-    // Fetch latest profile from DB if user_id provided
-    let profile = user_profile || {};
-    if (user_id) {
-      const { data: profileRow } = await supabase
-        .from("profiles")
-        .select("age, gender, income, occupation, state, category, is_rural")
-        .eq("user_id", user_id)
-        .maybeSingle();
-      if (profileRow) profile = profileRow;
     }
 
     // Build chat history context
@@ -63,21 +68,21 @@ serve(async (req) => {
           .filter(([, v]) => v !== null && v !== undefined)
           .map(([k, v]) => `${k}: ${v}`)
           .join(", ")
-      : "No profile information available";
+      : userLanguage === 'kn' ? 'ಪ್ರೊಫೈಲ್ ಮಾಹಿತಿ ಲಭ್ಯವಿಲ್ಲ' : 'No profile information available';
+
+    const profileLabel = userLanguage === 'kn' ? 'ಪ್ರೊಫೈಲ್ ಮಾಹಿತಿ:' : 'User Profile:';
+    const conversationLabel = userLanguage === 'kn' ? 'ಹಿಂದಿನ ಸಂಭಾಷಣೆ:' : 'Previous conversation:';
+    const languageInstruction = userLanguage === 'kn'
+      ? 'ಈ ಪ್ರಶ್ನೆಗೆ ವಿಶೇಷವಾಗಿ ಮೂಲ ಕನ್ನಡ ಭಾಷೆಯಲ್ಲಿ, ಗ್ರಾಮೀಣ ಮತ್ತು ದೈನಂದಿನ ಬಳಕೆಯ ಪದಗಳಲ್ಲಿ ಉತ್ತರಿಸಿ. ಉತ್ತರವು ಎಲ್ಲರೂ ಸುಲಭವಾಗಿ ಮನನಾಗುವಂತೆ, ಉದಾಹರಣೆಗಳೊಂದಿಗೆ ಮತ್ತು ನೈಜ ಸಂಭಾಷಣೆಯ ಶೈಲಿಯಲ್ಲಿ ಇರಲಿ.'
+      : 'Answer in clear and simple English.';
 
     const prompt = `You are a helpful AI assistant for Indian government schemes and policies.
 
-User Profile: ${profileText}
-${historyText ? `\nPrevious conversation:\n${historyText}\n` : ""}
+${profileLabel} ${profileText}
+${historyText ? `\n${conversationLabel}\n${historyText}\n` : ""}
 User Question: ${query}
 
-Answer the user's question directly and clearly:
-- If they ask "how to apply" → give numbered step-by-step instructions
-- If they ask about benefits → list the benefits clearly  
-- If they ask about eligibility → explain based on their profile
-- If it's a general question → answer conversationally
-- Keep the answer simple, friendly, and easy to understand
-- Use the user's profile details to personalize the answer when relevant
+${languageInstruction}
 
 Answer:`;
 
@@ -86,7 +91,7 @@ Answer:`;
     console.log("Calling Gemini...");
 
     const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -107,7 +112,7 @@ Answer:`;
     const candidate = geminiData?.candidates?.[0];
     if (!candidate) throw new Error("No candidates returned from Gemini");
 
-    const answer = candidate?.content?.parts?.[0]?.text;
+    const answer = candidate?.content?.parts?.[0]?.text?.trim();
     if (!answer) throw new Error("Empty response from Gemini");
 
     console.log("GEMINI ANSWER:", answer);
@@ -116,10 +121,21 @@ Answer:`;
       JSON.stringify({
         success: true,
         data: {
-          answer: answer.trim(),
-          explanation: { why_eligible: "", missing_requirements: "", next_steps: "" },
-          full_details: { processed_policies: [], user_matching_profile: profile },
-          metadata: { policies_analyzed: 0, processing_time_ms: 0, model_used: "gemini-1.5-flash" },
+          answer,
+          explanation: {
+            why_eligible: "",
+            missing_requirements: "",
+            next_steps: "",
+          },
+          full_details: {
+            processed_policies: [],
+            user_matching_profile: profile,
+          },
+          metadata: {
+            policies_analyzed: 0,
+            processing_time_ms: 0,
+            model_used: "gemini-2.5-flash",
+          },
         },
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

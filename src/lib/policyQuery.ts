@@ -51,14 +51,37 @@ export async function queryPolicyPipeline(
       };
     }
 
-    if (!json.data) {
+    if (json.data) {
+      return json as PolicyQueryResponse;
+    }
+
+    if (typeof json.response === 'string') {
       return {
-        success: false,
-        error: 'Invalid response structure from policy assistant',
+        success: true,
+        data: {
+          answer: json.response.trim(),
+          explanation: {
+            why_eligible: '',
+            missing_requirements: '',
+            next_steps: '',
+          },
+          full_details: {
+            processed_policies: [],
+            user_matching_profile: {},
+          },
+          metadata: {
+            policies_analyzed: 0,
+            processing_time_ms: 0,
+            model_used: 'gemini-2.5-flash',
+          },
+        },
       };
     }
 
-    return json as PolicyQueryResponse;
+    return {
+      success: false,
+      error: 'Invalid response structure from policy assistant',
+    };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Network error occurred';
     return {

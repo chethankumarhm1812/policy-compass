@@ -48,7 +48,7 @@ Answer:`;
   console.log("API KEY EXISTS:", !!GEMINI_API_KEY);
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`,
+    `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -66,15 +66,7 @@ Answer:`;
   const data = await response.json();
   console.log("Gemini RAW DATA:", JSON.stringify(data, null, 2));
 
-  const candidate = data?.candidates?.[0];
-  if (!candidate) {
-    throw new Error("No candidates returned from Gemini");
-  }
-
-  const answer = candidate?.content?.parts?.[0]?.text;
-  if (!answer) {
-    throw new Error("Empty Gemini response");
-  }
+  const answer = data?.candidates?.[0]?.content?.parts?.[0]?.text || "No response";
 
   console.log("GEMINI RESPONSE:", answer);
   return answer;
@@ -116,7 +108,20 @@ serve(async (req: Request) => {
         success: true,
         data: {
           answer: aiRaw,
-          full_details: retrievedContext,
+          explanation: {
+            why_eligible: "",
+            missing_requirements: "",
+            next_steps: "",
+          },
+          full_details: {
+            processed_policies: [],
+            user_matching_profile: userProfile,
+          },
+          metadata: {
+            policies_analyzed: retrievedContext.length,
+            processing_time_ms: 0,
+            model_used: "gemini-2.5-flash",
+          },
         },
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

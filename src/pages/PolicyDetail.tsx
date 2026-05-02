@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { ArrowLeft, CheckCircle, XCircle, AlertTriangle, ExternalLink, FileText, MapPin, Info } from 'lucide-react';
 import { checkEligibility, type Policy, type UserProfile, type EligibilityResult } from '@/lib/eligibilityEngine';
+import { getPolicyFallbackDetails } from '@/lib/policyFallbacks';
 import { POLICY_CATEGORIES } from '@/lib/policyData';
 import { motion } from 'framer-motion';
 import DREModal from '@/components/DREModal';
@@ -42,6 +43,12 @@ export default function PolicyDetail() {
   if (loading) return <div className="flex items-center justify-center h-64 text-muted-foreground">Loading...</div>;
   if (!policy) return <div className="text-center py-12 text-muted-foreground">Policy not found</div>;
 
+  const fallback = getPolicyFallbackDetails(policy.title);
+  const applyLink = policy.apply_link || fallback.apply_link;
+  const applicationSteps = policy.application_steps && policy.application_steps.length > 0
+    ? policy.application_steps
+    : fallback.application_steps || [];
+
   const cat = POLICY_CATEGORIES.find(c => c.id === policy.category);
   const statusConfig = {
     eligible: { color: 'bg-eligible', icon: CheckCircle, label: 'You are Eligible! ✅', textColor: 'text-eligible' },
@@ -65,10 +72,14 @@ export default function PolicyDetail() {
             <Badge variant="outline" className="mb-2">{policy.category}</Badge>
             <h1 className="text-2xl font-bold font-heading">{policy.title}</h1>
             <p className="text-muted-foreground mt-1">{policy.description}</p>
+            {fallback.website && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Official website: <a className="text-primary underline" href={fallback.website} target="_blank" rel="noopener noreferrer">{fallback.website}</a>
+              </p>
+            )}
           </div>
         </div>
 
-        {/* Eligibility Result */}
         {eligibility && sc && (
           <Card className="border-2" style={{ borderColor: `hsl(var(--${eligibility.status === 'eligible' ? 'eligible' : eligibility.status === 'partial' ? 'partial' : 'ineligible'}))` }}>
             <CardContent className="p-4">
@@ -77,29 +88,34 @@ export default function PolicyDetail() {
                 <span className={`text-lg font-bold font-heading ${sc.textColor}`}>{sc.label}</span>
               </div>
 
-              {/* Matched rules */}
-              {Object.entries(eligibility.matchedRules).length > 0 && (
+              {eligibility.status === 'eligible' && (
                 <div className="mb-3">
-                  <p className="text-sm font-medium mb-1">✅ Matched Criteria:</p>
-                  {Object.entries(eligibility.matchedRules).map(([k, v]) => (
-                    <p key={k} className="text-sm text-muted-foreground pl-4">• {v}</p>
-                  ))}
+                  <p className="text-sm font-medium mb-1">✅ Why you are eligible:</p>
+                  {Object.entries(eligibility.matchedRules).length > 0 ? (
+                    Object.entries(eligibility.matchedRules).map(([k, v]) => (
+                      <p key={k} className="text-sm text-muted-foreground pl-4">• {v}</p>
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground pl-4">You match the eligibility requirements for this policy.</p>
+                  )}
                 </div>
               )}
 
-              {/* Reasons for ineligibility */}
-              {eligibility.reasons.length > 0 && (
+              {(eligibility.status === 'ineligible' || eligibility.status === 'partially_eligible') && (
                 <div className="mb-3">
-                  <p className="text-sm font-medium mb-1">❌ Not Matching:</p>
-                  {eligibility.reasons.map((r, i) => (
-                    <p key={i} className="text-sm text-muted-foreground pl-4">• {r}</p>
-                  ))}
+                  <p className="text-sm font-medium mb-1">❌ Why you may not be eligible:</p>
+                  {eligibility.reasons.length > 0 ? (
+                    eligibility.reasons.map((r, i) => (
+                      <p key={i} className="text-sm text-muted-foreground pl-4">• {r}</p>
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground pl-4">This policy requires additional information or criteria before you can be fully eligible.</p>
+                  )}
                 </div>
               )}
 
-              {/* Missing fields */}
               {eligibility.missingFields.length > 0 && (
-                <div>
+                <div className="mb-3">
                   <p className="text-sm font-medium mb-1">⚠️ Missing Information:</p>
                   {eligibility.missingFields.map((f, i) => (
                     <p key={i} className="text-sm text-muted-foreground pl-4">• {f.replace('_', ' ')}</p>
@@ -139,26 +155,26 @@ export default function PolicyDetail() {
         <Card className="mt-4">
           <CardHeader><CardTitle className="font-heading text-base flex items-center gap-2"><MapPin className="h-4 w-4 text-secondary" /> How to Apply</CardTitle></CardHeader>
           <CardContent>
-            <ol className="space-y-2">
-              {policy.application_steps?.map((s, i) => (
-                <li key={i} className="text-sm text-muted-foreground flex gap-2">
-                  <span className="font-bold text-foreground">{i + 1}.</span> {s}
-                </li>
-              ))}
-            </ol>
-            {(!policy.application_steps || policy.application_steps.length === 0) && (
+            {applicationSteps.length > 0 ? (
+              <ol className="space-y-2">
+                {applicationSteps.map((s, i) => (
+                  <li key={i} className="text-sm text-muted-foreground flex gap-2">
+                    <span className="font-bold text-foreground">{i + 1}.</span> {s}
+                  </li>
+                ))}
+              </ol>
+            ) : (
               <p className="text-sm text-muted-foreground">
-                Application steps are not published for this policy yet. Use the official apply link or contact your district office.
+                Application steps are not published for this policy yet. Use the official apply link or contact your local office.
               </p>
             )}
-            {policy.apply_link && (
-              <a href={policy.apply_link} target="_blank" rel="noopener noreferrer">
+            {applyLink ? (
+              <a href={applyLink} target="_blank" rel="noopener noreferrer">
                 <Button className="mt-4" size="lg">
                   Apply Now <ExternalLink className="ml-2 h-4 w-4" />
                 </Button>
               </a>
-            )}
-            {!policy.apply_link && (
+            ) : (
               <p className="text-sm text-muted-foreground mt-4">
                 Official apply link is not available yet. Keep documents ready and check the state portal or CSC center for the latest process.
               </p>
