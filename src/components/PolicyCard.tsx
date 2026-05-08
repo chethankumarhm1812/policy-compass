@@ -48,13 +48,15 @@ export default function PolicyCard({ policy, eligibilityStatus, index = 0 }: Pro
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground line-clamp-2">{policy.description}</p>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <FileText className="h-3.5 w-3.5" />
-            <span>{policy.required_documents?.length || 0} documents needed</span>
-          </div>
-          <Link to={`/policy/${policy.id}`}>
+          {policy.required_documents?.length ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <FileText className="h-3.5 w-3.5" />
+              <span>{policy.required_documents.length} documents needed</span>
+            </div>
+          ) : null}
+          <Link to="/deatils">
             <Button variant="outline" size="sm" className="w-full">
-              View Details <ArrowRight className="ml-2 h-3.5 w-3.5" />
+              View Deatils <ArrowRight className="ml-2 h-3.5 w-3.5" />
             </Button>
           </Link>
         </CardContent>

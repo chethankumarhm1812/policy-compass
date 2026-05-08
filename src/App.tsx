@@ -10,6 +10,7 @@ import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Profile from "./pages/Profile";
 import Policies from "./pages/Policies";
+import Deatils from "./pages/Deatils";
 import PolicyDetail from "./pages/PolicyDetail";
 import Chat from "./pages/Chat";
 import Notifications from "./pages/Notifications";
@@ -36,6 +37,7 @@ function AppRoutes() {
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
         <Route path="/policies" element={<ProtectedRoute><Policies /></ProtectedRoute>} />
+        <Route path="/deatils" element={<ProtectedRoute><Deatils /></ProtectedRoute>} />
         <Route path="/policy/:id" element={<ProtectedRoute><PolicyDetail /></ProtectedRoute>} />
         <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
         <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />

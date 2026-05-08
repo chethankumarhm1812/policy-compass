@@ -18,6 +18,7 @@ export default function Navbar() {
   const links = [
     { to: '/dashboard', label: 'Dashboard' },
     { to: '/policies', label: 'Policies' },
+    { to: '/deatils', label: 'Deatils' },
     { to: '/chat', label: 'AI Assistant' },
   ];
 
